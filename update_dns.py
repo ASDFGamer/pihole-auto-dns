@@ -154,10 +154,12 @@ class DnsRecord:
     def remove(self, auth: PiholeAuth):
         api_url = f"/api/config/dns/hosts/{self.ip}%20{self.domain}"
         rest_request(url=api_url, auth=auth, method=HttpMethod.DELETE)
+        print(f"Removed DNS Record from pihole: domain: {self.domain}, ip: {self.ip}")
 
     def add(self, auth: PiholeAuth):
         api_url = f"/api/config/dns/hosts/{self.ip}%20{self.domain}"
         rest_request(url=api_url, auth=auth, method=HttpMethod.PUT)
+        print(f"Added DNS Record to pihole: domain: {self.domain}, ip: {self.ip}")
 
 
 @dataclass(frozen=True)
@@ -167,8 +169,10 @@ class CNameRecord:
 
     def remove(self, auth: PiholeAuth):
         api_url = f"/api/config/dns/cnameRecords/{self.domain}%2C{self.target}"
-        json_data = {"password": EnvVars.pihole_password}
-        rest_request(url=api_url, data=json_data, auth=auth, method=HttpMethod.DELETE)
+        rest_request(url=api_url, auth=auth, method=HttpMethod.DELETE)
+        print(
+            f"Removed CName from pihole: domain: {self.domain}, target: {self.target}"
+        )
 
     def add(self, auth: PiholeAuth):
         api_url = f"/api/config/dns/cnameRecords/{self.domain}%2C{self.target}"
