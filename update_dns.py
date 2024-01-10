@@ -128,6 +128,25 @@ def rest_request(
 
 
 @dataclass(frozen=True)
+class DockerContainer:
+    id: str
+    labels: list[str]
+
+    @classmethod
+    def get_running_containers(cls, docker_endpoint: str) -> list["DockerContainer"]:
+        result: list[DockerContainer] = []
+        api_url = docker_endpoint + "/containers/json"
+        response = rest_request(url=api_url, method=HttpMethod.GET)
+        if response.code != 200 or response.json is None:
+            raise ValueError("Can't get containers from docker endpoint")
+        for container in response.json:
+            result.append(
+                DockerContainer(id=container["id"], labels=container["labels"])
+            )
+        return result
+
+
+@dataclass(frozen=True)
 class DnsRecord:
     domain: str
     ip: str
@@ -153,8 +172,32 @@ class CNameRecord:
 
     def add(self, auth: PiholeAuth):
         api_url = f"/api/config/dns/cnameRecords/{self.domain}%2C{self.target}"
-        json_data = {"password": EnvVars.pihole_password}
-        rest_request(url=api_url, data=json_data, auth=auth, method=HttpMethod.PUT)
+        rest_request(url=api_url, auth=auth, method=HttpMethod.PUT)
+        print(f"Added CName tp pihole: domain: {self.domain}, target: {self.target}")
+
+    @classmethod
+    def load_from_docker_labels(cls) -> list["CNameRecord"]:
+        if EnvVars.docker_endpoint is None:
+            return []
+        if EnvVars.pihole_cname_target is None:
+            raise ValueError(
+                "Please provide a pihole_cname_target when a docker_endpoint is set"
+            )
+        result: list[CNameRecord] = []
+        running_containers = DockerContainer.get_running_containers(
+            EnvVars.docker_endpoint
+        )
+        default_target = EnvVars.pihole_cname_target
+        for container in running_containers:
+            for label in container.labels:
+                if label.startswith("org.asdfgamer.pihole.domain"):
+                    result.append(
+                        CNameRecord(
+                            domain=label.split(":", maxsplit=1)[1],
+                            target=default_target,
+                        )
+                    )
+        return result
 
 
 @dataclass(frozen=True)
@@ -175,6 +218,7 @@ class LocalDnsConfig:
                 cnameRecords.append(
                     CNameRecord(target=record["target"], domain=record["domain"])
                 )
+        cnameRecords = cnameRecords + CNameRecord.load_from_docker_labels()
         return LocalDnsConfig(dns=dnsRecords, cname=cnameRecords)
 
 
