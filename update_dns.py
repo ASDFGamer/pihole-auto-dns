@@ -84,9 +84,12 @@ def rest_request(
         json_data = None
     try:
         with urllib.request.urlopen(request, data=json_data) as response:
-            body = response.read().decode("utf-8")
-            # print(body)
-            json_response = json.loads(body)
+            body: str = response.read().decode("utf-8")
+            print(body)
+            if body:
+                json_response = json.loads(body)
+            else:
+                json_response = None
             return ApiResponse(code=response.status, json=json_response)
     except HTTPError as err:
         error_message = json.loads(err.fp.read())["error"]
