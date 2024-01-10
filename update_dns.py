@@ -10,14 +10,17 @@ import urllib.parse
 import json
 from typing import Any, Optional
 from datetime import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 
 @dataclass
 class EnvVars:
-    pihole_base_url = os.environ["pihole_base_url"]
-    pihole_password = os.environ["pihole_password"]
-    pihole_config_path = os.environ["pihole_config_path"]
+    pihole_base_url: str = os.environ["pihole_base_url"]
+    pihole_password: str = os.environ["pihole_password"]
+    config_file: str = os.environ.get("config_file", default="/pihole_config.json")
+    docker_endpoint: Optional[str] = os.environ.get("docker_endpoint")
+    pihole_cname_target: Optional[str] = os.environ.get("pihole_cname_target")
+    cache_file = "/tmp/pihole_auth.json"
 
 
 @dataclass(frozen=True)
@@ -39,6 +42,21 @@ class PiholeAuth:
     creation_time: datetime = datetime.now()
 
     @classmethod
+    def get_valid(cls) -> "PiholeAuth":
+        if os.path.isfile(EnvVars.cache_file):
+            with open(EnvVars.cache_file, mode="r", encoding="UTF-8") as cache_file:
+                old_auth_json = json.load(cache_file)
+                old_auth = PiholeAuth.from_json(old_auth_json)
+                delta = datetime.now() - old_auth.creation_time
+                if delta.seconds < old_auth.validity:
+                    return old_auth
+        new_auth = cls.get_new()
+        new_auth_json = new_auth.to_json()
+        with open(EnvVars.cache_file, mode="w", encoding="UTF-8") as cache_file:
+            cache_file.write(new_auth_json)
+        return new_auth
+
+    @classmethod
     def get_new(cls) -> "PiholeAuth":
         api_url = "/api/auth"
         json_data = {"password": EnvVars.pihole_password}
@@ -50,6 +68,18 @@ class PiholeAuth:
         if result.json is None:
             raise ValueError("No Data returned")
         return PiholeAuth(**result.json["session"])
+
+    @classmethod
+    def from_json(cls, json_obj: Any) -> "PiholeAuth":
+        json_obj["creation_time"] = datetime.fromisoformat(json_obj["creation_time"])
+        return PiholeAuth(**json_obj)
+
+    def to_json(self) -> str:
+        def converter(o: Any):
+            if isinstance(o, datetime):
+                return o.isoformat()
+
+        return json.dumps(asdict(self), default=converter)
 
 
 HttpMethod = Enum("HTTP_Method", ["GET", "POST", "PUT", "DELETE"])
@@ -85,7 +115,7 @@ def rest_request(
     try:
         with urllib.request.urlopen(request, data=json_data) as response:
             body: str = response.read().decode("utf-8")
-            print(body)
+            # print(body)
             if body:
                 json_response = json.loads(body)
             else:
@@ -237,10 +267,8 @@ def apply_config(auth: PiholeAuth, config: PiholeConfig):
 
 
 def main() -> None:
-    pihole_auth: PiholeAuth = PiholeAuth.get_new()
-    pihole_config: PiholeConfig = PiholeConfig.load_from_file(
-        EnvVars.pihole_config_path
-    )
+    pihole_auth: PiholeAuth = PiholeAuth.get_valid()
+    pihole_config: PiholeConfig = PiholeConfig.load_from_file(EnvVars.config_file)
     apply_config(config=pihole_config, auth=pihole_auth)
 
 
