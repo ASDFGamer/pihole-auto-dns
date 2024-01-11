@@ -113,7 +113,6 @@ def rest_request(
     try:
         with urllib.request.urlopen(request, data=json_data) as response:
             body: str = response.read().decode("utf-8")
-            # print(body)
             if body:
                 json_response = json.loads(body)
             else:
@@ -128,7 +127,7 @@ def rest_request(
 @dataclass(frozen=True)
 class DockerContainer:
     id: str
-    labels: list[str]
+    labels: dict[str, str]
 
     @classmethod
     def get_running_containers(cls, docker_endpoint: str) -> list["DockerContainer"]:
@@ -139,7 +138,7 @@ class DockerContainer:
             raise ValueError("Can't get containers from docker endpoint")
         for container in response.json:
             result.append(
-                DockerContainer(id=container["id"], labels=container["labels"])
+                DockerContainer(id=container["Id"], labels=container["Labels"])
             )
         return result
 
@@ -195,14 +194,14 @@ class CNameRecord:
         )
         default_target = EnvVars.pihole_cname_target
         for container in running_containers:
-            for label in container.labels:
-                if label.startswith("org.asdfgamer.pihole.domain"):
-                    result.append(
-                        CNameRecord(
-                            domain=label.split(":", maxsplit=1)[1],
-                            target=default_target,
-                        )
+            domain_label = "org.asdfgamer.pihole-config.domain"
+            if domain_label in container.labels:
+                result.append(
+                    CNameRecord(
+                        domain=container.labels[domain_label],
+                        target=default_target,
                     )
+                )
         return result
 
 
