@@ -1,0 +1,48 @@
+services:
+    pihole:
+        container_name: pihole
+        cap_add:
+            - NET_ADMIN
+        dns:
+            - 9.9.9.9
+        environment:
+            TZ: Europe/Berlin
+            DNSMASQ_LISTENING: all
+        image: pihole/pihole:development-v6
+        ports:
+            - 8080:80/tcp
+            # - 192.168.2.2:53:53/tcp
+            # - 192.168.2.2:53:53/udp
+        restart: unless-stopped
+        labels:
+            - "org.asdfgamer.pihole-config.domain=pihole.lan"
+        networks:
+            - pihole
+    pihole_config:
+        build: .
+        container_name: pihole_config
+        networks:
+            - pihole
+            - pihole_config_socket
+        environment:
+            - pihole_base_url=http://pihole:80
+            - pihole_password=bJBRLmJj
+            - pihole_cname_target=server.lan
+            - docker_endpoint=http://docker_socket_proxy:2375
+        volumes:
+        - ./pihole_config.json:/pihole_config.json:ro
+    docker_socket_proxy:
+        image: tecnativa/docker-socket-proxy:latest
+        container_name: docker_socket_proxy
+        networks:
+            - pihole_config_socket
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+        expose:
+            - 2375
+        environment:
+            - CONTAINERS=1
+
+networks:
+    pihole:
+    pihole_config_socket:
