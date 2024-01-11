@@ -58,7 +58,7 @@ class PiholeAuth:
 
     @classmethod
     def get_new(cls) -> "PiholeAuth":
-        api_url = "/api/auth"
+        api_url = f"{EnvVars.pihole_base_url}/api/auth"
         json_data = {"password": EnvVars.pihole_password}
         result: ApiResponse = rest_request(
             url=api_url, data=json_data, method=HttpMethod.POST
@@ -98,9 +98,7 @@ def rest_request(
     headers: Optional[dict[str, str]] = None,
     auth: Optional[PiholeAuth] = None,
 ) -> ApiResponse:
-    request = urllib.request.Request(
-        EnvVars.pihole_base_url + url, method=method.name.upper()
-    )
+    request = urllib.request.Request(url, method=method.name.upper())
     if headers:
         for key, value in headers.items():
             request.add_header(key=key, val=value)
@@ -152,12 +150,16 @@ class DnsRecord:
     ip: str
 
     def remove(self, auth: PiholeAuth):
-        api_url = f"/api/config/dns/hosts/{self.ip}%20{self.domain}"
+        api_url = (
+            f"{EnvVars.pihole_base_url}/api/config/dns/hosts/{self.ip}%20{self.domain}"
+        )
         rest_request(url=api_url, auth=auth, method=HttpMethod.DELETE)
         print(f"Removed DNS Record from pihole: domain: {self.domain}, ip: {self.ip}")
 
     def add(self, auth: PiholeAuth):
-        api_url = f"/api/config/dns/hosts/{self.ip}%20{self.domain}"
+        api_url = (
+            f"{EnvVars.pihole_base_url}/api/config/dns/hosts/{self.ip}%20{self.domain}"
+        )
         rest_request(url=api_url, auth=auth, method=HttpMethod.PUT)
         print(f"Added DNS Record to pihole: domain: {self.domain}, ip: {self.ip}")
 
@@ -168,14 +170,14 @@ class CNameRecord:
     target: str
 
     def remove(self, auth: PiholeAuth):
-        api_url = f"/api/config/dns/cnameRecords/{self.domain}%2C{self.target}"
+        api_url = f"{EnvVars.pihole_base_url}/api/config/dns/cnameRecords/{self.domain}%2C{self.target}"
         rest_request(url=api_url, auth=auth, method=HttpMethod.DELETE)
         print(
             f"Removed CName from pihole: domain: {self.domain}, target: {self.target}"
         )
 
     def add(self, auth: PiholeAuth):
-        api_url = f"/api/config/dns/cnameRecords/{self.domain}%2C{self.target}"
+        api_url = f"{EnvVars.pihole_base_url}/api/config/dns/cnameRecords/{self.domain}%2C{self.target}"
         rest_request(url=api_url, auth=auth, method=HttpMethod.PUT)
         print(f"Added CName tp pihole: domain: {self.domain}, target: {self.target}")
 
@@ -246,7 +248,7 @@ class PiholeConfig:
 
 
 def get_current_cname_records(auth: PiholeAuth) -> list[CNameRecord]:
-    api_url = "/api/config/dns/cnameRecords/"
+    api_url = f"{EnvVars.pihole_base_url}/api/config/dns/cnameRecords/"
     api_result: ApiResponse = rest_request(
         url=api_url, auth=auth, method=HttpMethod.GET
     )
@@ -261,7 +263,7 @@ def get_current_cname_records(auth: PiholeAuth) -> list[CNameRecord]:
 
 
 def get_current_dns_records(auth: PiholeAuth) -> list[DnsRecord]:
-    api_url = "/api/config/dns/hosts/"
+    api_url = f"{EnvVars.pihole_base_url}/api/config/dns/hosts/"
     api_result: ApiResponse = rest_request(
         url=api_url, auth=auth, method=HttpMethod.GET
     )
