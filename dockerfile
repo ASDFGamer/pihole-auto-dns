@@ -1,6 +1,6 @@
-FROM python:3.12.1
+FROM python:3.12.1-alpine3.19
 
-RUN apt-get update && apt-get install -y cron
+# RUN apt-get update && apt-get install -y cron
 
 COPY ./update_dns.py /
 COPY ./start_cron.sh /
