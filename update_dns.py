@@ -63,7 +63,7 @@ class PiholeAuth:
         api_url = f"{EnvVars.pihole_base_url}/api/auth"
         json_data = {"password": EnvVars.pihole_password}
         result: ApiResponse = rest_request(
-            url=api_url, data=json_data, method=HttpMethod.POST
+            url=api_url, body=json_data, method=HttpMethod.POST
         )
         if result.code != 200:
             raise ValueError("Invalid Password")
@@ -96,7 +96,7 @@ class ApiResponse:
 def rest_request(
     url: str,
     method: HttpMethod,
-    data: Optional[dict[str, str]] = None,
+    body: Optional[dict[str, Any]] = None,
     headers: Optional[dict[str, str]] = None,
     auth: Optional[PiholeAuth] = None,
 ) -> ApiResponse:
@@ -107,16 +107,16 @@ def rest_request(
     if auth:
         request.add_header(key="X-CSRF-TOKEN", val=auth.csrf)
         request.add_header(key="Cookie", val=f"sid={auth.sid}")
-    if data:
+    if body:
         request.add_header("Content-Type", "application/json")
-        json_data = json.dumps(data).encode()
+        json_data = json.dumps(body).encode()
     else:
         json_data = None
     try:
         with urllib.request.urlopen(request, data=json_data) as response:
-            body: str = response.read().decode("utf-8")
-            if body:
-                json_response = json.loads(body)
+            response_body: str = response.read().decode("utf-8")
+            if response_body:
+                json_response = json.loads(response_body)
             else:
                 json_response = None
             return ApiResponse(code=response.status, json=json_response)
@@ -126,12 +126,10 @@ def rest_request(
         raise ValueError(api_error) from err
 
 
-def load_remote_config(auth: PiholeAuth, config_path: str) -> Any:
-    if config_path.startswith("/"):
-        config_path = config_path.lstrip("/")
-    if not config_path.startswith("config"):
-        raise ValueError("Please pass a url that starts with 'config/'")
-    api_url = f"{EnvVars.pihole_base_url}/api/{config_path}"
+def pihole_api_get(auth: PiholeAuth, api_path: str) -> Any:
+    if api_path.startswith("/"):
+        api_path = api_path.lstrip("/")
+    api_url = f"{EnvVars.pihole_base_url}/api/{api_path}"
     api_result: ApiResponse = rest_request(
         url=api_url, auth=auth, method=HttpMethod.GET
     )
@@ -180,7 +178,7 @@ class DnsRecord:
 
     @classmethod
     def current_remote_state(cls, auth: PiholeAuth):
-        json_result = load_remote_config(auth, "config/dns/hosts/")
+        json_result = pihole_api_get(auth, "config/dns/hosts/")
         record_list: list[str] = json_result["config"]["dns"]["hosts"]
         result: list[DnsRecord] = []
         for record in record_list:
@@ -238,7 +236,7 @@ class CNameRecord:
 
     @classmethod
     def current_remote_state(cls, auth: PiholeAuth) -> list["CNameRecord"]:
-        json_result = load_remote_config(auth, "config/dns/cnameRecords/")
+        json_result = pihole_api_get(auth, "config/dns/cnameRecords/")
         record_list: list[str] = json_result["config"]["dns"]["cnameRecords"]
         result: list[CNameRecord] = []
         for record in record_list:
@@ -301,6 +299,8 @@ class LocalDnsConfig:
 @dataclass(frozen=True)
 class DomainRecord:
     domain: str
+    # allow or deny
+    allow: bool
     # exact or regex
     exact: bool = True
     comment: Optional[str] = None
@@ -316,29 +316,98 @@ class DomainRecord:
                 print(
                     f"Warning: Domain kind can only be 'regex' or 'exact' and not '{kind}'"
                 )
+        allow = True
+        domain_type: str = json_config["kind"].lower()
+        if domain_type == "deny":
+            exact = False
+        elif domain_type != "allow":
+            print(
+                f"Warning: Domain type can only be 'allow' or 'deny' and not '{domain_type}'"
+            )
         return DomainRecord(
             domain=json_config["domain"],
             exact=exact,
             comment=json_config.get("comment", None),
+            allow=allow,
         )
+
+    @classmethod
+    def current_remote_state(cls, auth: PiholeAuth) -> list["DomainRecord"]:
+        json_result = pihole_api_get(auth, "domains")
+        domain_list: list[Any] = json_result["domains"]
+        result: list[DomainRecord] = []
+        for domain_json in domain_list:
+            exact: bool = domain_json["kind"] == "exact"
+            allow: bool = domain_json["type"] == "allow"
+            result.append(
+                DomainRecord(
+                    domain=domain_json["domain"],
+                    exact=exact,
+                    comment=domain_json["comment"],
+                    allow=allow,
+                )
+            )
+
+        return result
+
+    def remove(self, auth: PiholeAuth):
+        domain_type = "allow" if self.allow else "deny"
+        kind = "exact" if self.exact else "regex"
+        api_url = (
+            f"{EnvVars.pihole_base_url}/api/domains/{domain_type}/{kind}/{self.domain}"
+        )
+        rest_request(url=api_url, auth=auth, method=HttpMethod.DELETE)
+        if self.allow:
+            print(f"Removed allowed Domain from pihole: {self.domain} ")
+        else:
+            print(f"Removed denied Domain from pihole: {self.domain} ")
+
+    def add(self, auth: PiholeAuth):
+        domain_type = "allow" if self.allow else "deny"
+        kind = "exact" if self.exact else "regex"
+        api_url = f"{EnvVars.pihole_base_url}/api/domains/{domain_type}/{kind}"
+        body = {
+            "domain": self.domain,
+            "comment": self.comment,
+            "enabled": True,
+            "groups": 1,
+        }
+        rest_request(url=api_url, auth=auth, method=HttpMethod.POST, body=body)
+        if self.allow:
+            print(f"Added allowed Domain to pihole: {self.domain} ")
+        else:
+            print(f"Added denied Domain to pihole: {self.domain} ")
 
 
 @dataclass(frozen=True)
 class DomainConfig:
-    allowed: list[DomainRecord]
-    denied: list[DomainRecord]
+    domains: list[DomainRecord]
 
     @classmethod
     def from_json(cls, json_config: Any) -> "DomainConfig":
-        allowed: list[DomainRecord] = []
-        denied: list[DomainRecord] = []
-        if "allow" in json_config:
-            for domain_config in json_config["allow"]:
-                allowed.append(DomainRecord.from_json(domain_config))
-        if "deny" in json_config:
-            for domain_config in json_config["deny"]:
-                allowed.append(DomainRecord.from_json(domain_config))
-        return DomainConfig(allowed=allowed, denied=denied)
+        domains: list[DomainRecord] = []
+        for domain_config in json_config:
+            domains.append(DomainRecord.from_json(domain_config))
+        return DomainConfig(domains=domains)
+
+    def apply(self, auth: PiholeAuth):
+        current_remote_state = DomainRecord.current_remote_state(auth)
+
+        to_add = [
+            x
+            for x in current_remote_state + self.domains
+            if x not in current_remote_state
+        ]
+
+        to_remove = [
+            x for x in current_remote_state + self.domains if x not in self.domains
+        ]
+
+        for dns in to_remove:
+            dns.remove(auth)
+
+        for dns in to_add:
+            dns.add(auth)
 
 
 @dataclass(frozen=True)
@@ -355,7 +424,7 @@ class PiholeConfig:
     @classmethod
     def from_json(cls, json_config: Any) -> "PiholeConfig":
         local_dns_config = LocalDnsConfig(dns=[], cname=[])
-        domains_config = DomainConfig([], [])
+        domains_config = DomainConfig([])
         for key in json_config.keys():
             if key == "local_dns":
                 local_dns_config = LocalDnsConfig.from_json(json_config[key])
