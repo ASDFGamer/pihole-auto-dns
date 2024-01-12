@@ -5,6 +5,7 @@
 from enum import Enum
 import os
 from urllib.error import HTTPError
+import urllib.error
 import urllib.request
 import urllib.parse
 import json
@@ -442,7 +443,13 @@ class PiholeConfig:
 
 
 def main() -> None:
-    pihole_auth: PiholeAuth = PiholeAuth.get_valid()
+    try:
+        pihole_auth: PiholeAuth = PiholeAuth.get_valid()
+    except urllib.error.URLError:
+        print(
+            f"Warning: Pihole ({EnvVars.pihole_base_url}) isn't reachable. This is normal if the container just started."
+        )
+        exit()
     pihole_config: PiholeConfig = PiholeConfig.from_file(EnvVars.config_file)
     pihole_config.apply(auth=pihole_auth)
 
