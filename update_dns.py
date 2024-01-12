@@ -178,7 +178,7 @@ class CNameRecord:
     def add(self, auth: PiholeAuth):
         api_url = f"{EnvVars.pihole_base_url}/api/config/dns/cnameRecords/{self.domain}%2C{self.target}"
         rest_request(url=api_url, auth=auth, method=HttpMethod.PUT)
-        print(f"Added CName tp pihole: domain: {self.domain}, target: {self.target}")
+        print(f"Added CName to pihole: domain: {self.domain}, target: {self.target}")
 
     @classmethod
     def load_from_docker_labels(cls) -> list["CNameRecord"]:
