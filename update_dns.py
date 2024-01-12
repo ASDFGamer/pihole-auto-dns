@@ -19,7 +19,9 @@ class EnvVars:
     pihole_password: str = os.environ["pihole_password"]
     config_file: str = os.environ.get("config_file", default="/pihole_config.json")
     docker_endpoint: Optional[str] = os.environ.get("docker_endpoint")
-    pihole_cname_target: Optional[str] = os.environ.get("pihole_cname_target")
+    default_cname_target: Optional[str] = os.environ.get(
+        "default_cname_target", default=None
+    )
     cache_file = "/tmp/pihole_auth.json"
 
 
@@ -184,22 +186,28 @@ class CNameRecord:
     def load_from_docker_labels(cls) -> list["CNameRecord"]:
         if EnvVars.docker_endpoint is None:
             return []
-        if EnvVars.pihole_cname_target is None:
-            raise ValueError(
-                "Please provide a pihole_cname_target when a docker_endpoint is set"
-            )
+
         result: list[CNameRecord] = []
         running_containers = DockerContainer.get_running_containers(
             EnvVars.docker_endpoint
         )
-        default_target = EnvVars.pihole_cname_target
+        cname_label = "pihole_config.local_dns.cname"
+        domain_label = f"{cname_label}.domain"
+        target_label = f"{cname_label}.target"
         for container in running_containers:
-            domain_label = "org.asdfgamer.pihole-config.domain"
             if domain_label in container.labels:
+                if target_label in container.labels:
+                    target = container.labels[target_label]
+                else:
+                    if EnvVars.default_cname_target is None:
+                        raise ValueError(
+                            "Please provide a cname target, either as a label or via the default_cname_target env var"
+                        )
+                    target = EnvVars.default_cname_target
                 result.append(
                     CNameRecord(
                         domain=container.labels[domain_label],
-                        target=default_target,
+                        target=target,
                     )
                 )
         return result
