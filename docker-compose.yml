@@ -8,6 +8,7 @@ services:
         environment:
             TZ: Europe/Berlin
             DNSMASQ_LISTENING: all
+            FTLCONF_webserver_api_password: pihole
         image: pihole/pihole:development-v6
         ports:
             - 8080:80/tcp
@@ -26,7 +27,7 @@ services:
             - pihole_config_socket
         environment:
             - pihole_base_url=http://pihole:80
-            - pihole_password=bJBRLmJj
+            - pihole_password=pihole
             - pihole_cname_target=server.lan
             - docker_endpoint=http://docker_socket_proxy:2375
         volumes:
