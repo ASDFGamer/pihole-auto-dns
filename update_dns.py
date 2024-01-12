@@ -317,7 +317,11 @@ class DomainRecord:
                     f"Warning: Domain kind can only be 'regex' or 'exact' and not '{kind}'"
                 )
         allow = True
-        domain_type: str = json_config["kind"].lower()
+        if not "type" in json_config:
+            raise ValueError(
+                "A type key has to be defined for domains. Possible values are 'allow' and 'deny'"
+            )
+        domain_type: str = json_config["type"].lower()
         if domain_type == "deny":
             exact = False
         elif domain_type != "allow":

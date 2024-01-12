@@ -31,7 +31,8 @@
     {
       "domain": "denied.lan",
       "kind": "exact",
-      "comment": "This is a denied domain in my network"
+      "comment": "This is a denied domain in my network",
+      "type": "deny"
     }
   ]
 }
