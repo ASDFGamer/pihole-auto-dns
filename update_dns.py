@@ -438,6 +438,7 @@ class PiholeConfig:
 
     def apply(self, auth: PiholeAuth):
         self.local_dns.apply(auth)
+        self.domains.apply(auth)
 
 
 def main() -> None:
