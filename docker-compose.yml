@@ -16,7 +16,8 @@ services:
             # - 192.168.2.2:53:53/udp
         restart: unless-stopped
         labels:
-            - "org.asdfgamer.pihole-config.domain=pihole.lan"
+            - "pihole_config.local_dns.cname.domain=pihole.lan"
+            - "pihole_config.local_dns.cname.target=server.lan"
         networks:
             - pihole
     pihole_config:
@@ -28,7 +29,6 @@ services:
         environment:
             - pihole_base_url=http://pihole:80
             - pihole_password=pihole
-            - pihole_cname_target=server.lan
             - docker_endpoint=http://docker_socket_proxy:2375
         volumes:
         - ./pihole_config.json:/pihole_config.json:ro
