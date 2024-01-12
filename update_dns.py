@@ -126,6 +126,20 @@ def rest_request(
         raise ValueError(api_error) from err
 
 
+def load_remote_config(auth: PiholeAuth, config_path: str) -> Any:
+    if config_path.startswith("/"):
+        config_path = config_path.lstrip("/")
+    if not config_path.startswith("config"):
+        raise ValueError("Please pass a url that starts with 'config/'")
+    api_url = f"{EnvVars.pihole_base_url}/api/{config_path}"
+    api_result: ApiResponse = rest_request(
+        url=api_url, auth=auth, method=HttpMethod.GET
+    )
+    if api_result.code != 200 or api_result.json is None:
+        raise ValueError("Can't get current DNS Records")
+    return api_result.json
+
+
 @dataclass(frozen=True)
 class DockerContainer:
     id: str
@@ -163,6 +177,16 @@ class DnsRecord:
         )
         rest_request(url=api_url, auth=auth, method=HttpMethod.PUT)
         print(f"Added DNS Record to pihole: domain: {self.domain}, ip: {self.ip}")
+
+    @classmethod
+    def current_remote_state(cls, auth: PiholeAuth):
+        json_result = load_remote_config(auth, "config/dns/hosts/")
+        record_list: list[str] = json_result["config"]["dns"]["hosts"]
+        result: list[DnsRecord] = []
+        for record in record_list:
+            (ip, domain) = record.split(" ", maxsplit=1)
+            result.append(DnsRecord(domain=domain, ip=ip))
+        return result
 
 
 @dataclass(frozen=True)
@@ -212,6 +236,16 @@ class CNameRecord:
                 )
         return result
 
+    @classmethod
+    def current_remote_state(cls, auth: PiholeAuth) -> list["CNameRecord"]:
+        json_result = load_remote_config(auth, "config/dns/cnameRecords/")
+        record_list: list[str] = json_result["config"]["dns"]["cnameRecords"]
+        result: list[CNameRecord] = []
+        for record in record_list:
+            (domain, target) = record.split(",", maxsplit=1)
+            result.append(CNameRecord(domain=domain, target=target))
+        return result
+
 
 @dataclass(frozen=True)
 class LocalDnsConfig:
@@ -220,19 +254,48 @@ class LocalDnsConfig:
 
     @classmethod
     def from_json(cls, json_config: Any) -> "LocalDnsConfig":
-        dnsRecords: list[DnsRecord] = []
-        cnameRecords: list[CNameRecord] = []
+        dns_records: list[DnsRecord] = []
+        cname_records: list[CNameRecord] = []
 
         if "DNS" in json_config:
             for record in json_config["DNS"]:
-                dnsRecords.append(DnsRecord(ip=record["ip"], domain=record["domain"]))
+                dns_records.append(DnsRecord(ip=record["ip"], domain=record["domain"]))
         if "CNAME" in json_config:
             for record in json_config["CNAME"]:
-                cnameRecords.append(
+                cname_records.append(
                     CNameRecord(target=record["target"], domain=record["domain"])
                 )
-        cnameRecords = cnameRecords + CNameRecord.load_from_docker_labels()
-        return LocalDnsConfig(dns=dnsRecords, cname=cnameRecords)
+        cname_records = cname_records + CNameRecord.load_from_docker_labels()
+        return LocalDnsConfig(dns=dns_records, cname=cname_records)
+
+    def apply(self, auth: PiholeAuth):
+        self._apply_dns(auth)
+        self._apply_cname(auth)
+
+    def _apply_dns(self, auth: PiholeAuth):
+        current_dns = DnsRecord.current_remote_state(auth)
+
+        to_add = [x for x in current_dns + self.dns if x not in current_dns]
+
+        to_remove = [x for x in current_dns + self.dns if x not in self.dns]
+
+        for dns in to_remove:
+            dns.remove(auth)
+
+        for dns in to_add:
+            dns.add(auth)
+
+    def _apply_cname(self, auth: PiholeAuth):
+        current_cname = CNameRecord.current_remote_state(auth)
+        to_add = [x for x in current_cname + self.cname if x not in current_cname]
+
+        to_remove = [x for x in current_cname + self.cname if x not in self.cname]
+
+        for cname in to_remove:
+            cname.remove(auth)
+
+        for cname in to_add:
+            cname.add(auth)
 
 
 @dataclass(frozen=True)
@@ -300,80 +363,14 @@ class PiholeConfig:
                 domains_config = DomainConfig.from_json(json_config[key])
         return PiholeConfig(local_dns=local_dns_config, domains=domains_config)
 
-
-def get_current_cname_records(auth: PiholeAuth) -> list[CNameRecord]:
-    api_url = f"{EnvVars.pihole_base_url}/api/config/dns/cnameRecords/"
-    api_result: ApiResponse = rest_request(
-        url=api_url, auth=auth, method=HttpMethod.GET
-    )
-    if api_result.code != 200 or api_result.json is None:
-        raise ValueError("Can't get current CName Records")
-    record_list: list[str] = api_result.json["config"]["dns"]["cnameRecords"]
-    result: list[CNameRecord] = []
-    for record in record_list:
-        (domain, target) = record.split(",", maxsplit=1)
-        result.append(CNameRecord(domain=domain, target=target))
-    return result
-
-
-def get_current_dns_records(auth: PiholeAuth) -> list[DnsRecord]:
-    api_url = f"{EnvVars.pihole_base_url}/api/config/dns/hosts/"
-    api_result: ApiResponse = rest_request(
-        url=api_url, auth=auth, method=HttpMethod.GET
-    )
-    if api_result.code != 200 or api_result.json is None:
-        raise ValueError("Can't get current DNS Records")
-    record_list: list[str] = api_result.json["config"]["dns"]["hosts"]
-    result: list[DnsRecord] = []
-    for record in record_list:
-        (ip, domain) = record.split(" ", maxsplit=1)
-        result.append(DnsRecord(domain=domain, ip=ip))
-    return result
-
-
-def apply_local_dns_records(auth: PiholeAuth, config: PiholeConfig):
-    current_dns = get_current_dns_records(auth)
-    expected_dns = config.local_dns.dns
-
-    to_add = [x for x in current_dns + expected_dns if x not in current_dns]
-
-    to_remove = [x for x in current_dns + expected_dns if x not in expected_dns]
-
-    for dns in to_remove:
-        dns.remove(auth)
-
-    for dns in to_add:
-        dns.add(auth)
-
-
-def apply_local_cname_records(auth: PiholeAuth, config: PiholeConfig):
-    current_cname = get_current_cname_records(auth)
-    expected_cname = config.local_dns.cname
-
-    to_add = [x for x in current_cname + expected_cname if x not in current_cname]
-
-    to_remove = [x for x in current_cname + expected_cname if x not in expected_cname]
-
-    for cname in to_remove:
-        cname.remove(auth)
-
-    for cname in to_add:
-        cname.add(auth)
-
-
-def apply_local_dns(auth: PiholeAuth, config: PiholeConfig):
-    apply_local_dns_records(auth, config)
-    apply_local_cname_records(auth, config)
-
-
-def apply_config(auth: PiholeAuth, config: PiholeConfig):
-    apply_local_dns(auth, config)
+    def apply(self, auth: PiholeAuth):
+        self.local_dns.apply(auth)
 
 
 def main() -> None:
     pihole_auth: PiholeAuth = PiholeAuth.get_valid()
     pihole_config: PiholeConfig = PiholeConfig.from_file(EnvVars.config_file)
-    apply_config(config=pihole_config, auth=pihole_auth)
+    pihole_config.apply(auth=pihole_auth)
 
 
 if __name__ == "__main__":
