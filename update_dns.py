@@ -219,7 +219,7 @@ class LocalDnsConfig:
     cname: list[CNameRecord]
 
     @classmethod
-    def load_from_json(cls, json_config: Any) -> "LocalDnsConfig":
+    def from_json(cls, json_config: Any) -> "LocalDnsConfig":
         dnsRecords: list[DnsRecord] = []
         cnameRecords: list[CNameRecord] = []
 
@@ -236,22 +236,69 @@ class LocalDnsConfig:
 
 
 @dataclass(frozen=True)
+class DomainRecord:
+    domain: str
+    # exact or regex
+    exact: bool = True
+    comment: Optional[str] = None
+
+    @classmethod
+    def from_json(cls, json_config: Any) -> "DomainRecord":
+        exact = True
+        if "kind" in json_config:
+            kind: str = json_config["kind"].lower()
+            if kind == "regex":
+                exact = False
+            elif kind != "exact":
+                print(
+                    f"Warning: Domain kind can only be 'regex' or 'exact' and not '{kind}'"
+                )
+        return DomainRecord(
+            domain=json_config["domain"],
+            exact=exact,
+            comment=json_config.get("comment", None),
+        )
+
+
+@dataclass(frozen=True)
+class DomainConfig:
+    allowed: list[DomainRecord]
+    denied: list[DomainRecord]
+
+    @classmethod
+    def from_json(cls, json_config: Any) -> "DomainConfig":
+        allowed: list[DomainRecord] = []
+        denied: list[DomainRecord] = []
+        if "allow" in json_config:
+            for domain_config in json_config["allow"]:
+                allowed.append(DomainRecord.from_json(domain_config))
+        if "deny" in json_config:
+            for domain_config in json_config["deny"]:
+                allowed.append(DomainRecord.from_json(domain_config))
+        return DomainConfig(allowed=allowed, denied=denied)
+
+
+@dataclass(frozen=True)
 class PiholeConfig:
     local_dns: LocalDnsConfig
+    domains: DomainConfig
 
     @classmethod
-    def load_from_file(cls, filename: str) -> "PiholeConfig":
+    def from_file(cls, filename: str) -> "PiholeConfig":
         with open(filename, mode="r", encoding="UTF-8") as config_file:
             parsed_config = json.load(config_file)
-            return cls.load_from_json(parsed_config)
+            return cls.from_json(parsed_config)
 
     @classmethod
-    def load_from_json(cls, json_config: Any) -> "PiholeConfig":
+    def from_json(cls, json_config: Any) -> "PiholeConfig":
         local_dns_config = LocalDnsConfig(dns=[], cname=[])
+        domains_config = DomainConfig([], [])
         for key in json_config.keys():
             if key == "local_dns":
-                local_dns_config = LocalDnsConfig.load_from_json(json_config[key])
-        return PiholeConfig(local_dns=local_dns_config)
+                local_dns_config = LocalDnsConfig.from_json(json_config[key])
+            if key == "domains":
+                domains_config = DomainConfig.from_json(json_config[key])
+        return PiholeConfig(local_dns=local_dns_config, domains=domains_config)
 
 
 def get_current_cname_records(auth: PiholeAuth) -> list[CNameRecord]:
@@ -325,7 +372,7 @@ def apply_config(auth: PiholeAuth, config: PiholeConfig):
 
 def main() -> None:
     pihole_auth: PiholeAuth = PiholeAuth.get_valid()
-    pihole_config: PiholeConfig = PiholeConfig.load_from_file(EnvVars.config_file)
+    pihole_config: PiholeConfig = PiholeConfig.from_file(EnvVars.config_file)
     apply_config(config=pihole_config, auth=pihole_auth)
 
 

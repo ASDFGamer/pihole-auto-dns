@@ -20,5 +20,21 @@
         "target": "server.lan"
       }
     ]
+  },
+  "domains": {
+    "allow": [
+      {
+        "domain": "allowed.lan",
+        "kind": "exact",
+        "comment": "This is a allowed domain in my network"
+      }
+    ],
+    "deny": [
+      {
+        "domain": "denied.lan",
+        "kind": "exact",
+        "comment": "This is a denied domain in my network"
+      }
+    ]
   }
 }
