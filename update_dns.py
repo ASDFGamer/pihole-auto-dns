@@ -375,7 +375,7 @@ class DomainRecord:
             "domain": self.domain,
             "comment": self.comment,
             "enabled": True,
-            "groups": 1,
+            "groups": 0,
         }
         rest_request(url=api_url, auth=auth, method=HttpMethod.POST, body=body)
         if self.allow:
