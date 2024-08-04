@@ -42,6 +42,7 @@ class PiholeAuth:
     sid: str
     csrf: str
     validity: int
+    message: Optional[str]
     creation_time: datetime = datetime.now()
 
     @classmethod
