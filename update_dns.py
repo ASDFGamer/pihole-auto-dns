@@ -8,6 +8,7 @@ from urllib.error import HTTPError
 import urllib.error
 import urllib.request
 import json
+import sys
 from typing import Any, Optional
 from datetime import datetime
 from dataclasses import dataclass, asdict
@@ -319,7 +320,7 @@ class DomainRecord:
                     f"Warning: Domain kind can only be 'regex' or 'exact' and not '{kind}'"
                 )
         allow = True
-        if not "type" in json_config:
+        if "type" not in json_config:
             raise ValueError(
                 "A type key has to be defined for domains. Possible values are 'allow' and 'deny'"
             )
@@ -448,9 +449,10 @@ def main() -> None:
         pihole_auth: PiholeAuth = PiholeAuth.get_valid()
     except (urllib.error.URLError, ConnectionResetError):
         print(
-            f"Warning: Pihole ({EnvVars.pihole_base_url}) isn't reachable. This is normal if the container just started."
+            f"Warning: Pihole ({EnvVars.pihole_base_url}) isn't reachable. "
+            + "This is normal if the container just started."
         )
-        exit()
+        sys.exit()
 
     pihole_config: PiholeConfig = PiholeConfig.from_file(EnvVars.config_file)
     pihole_config.apply(auth=pihole_auth)
