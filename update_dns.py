@@ -7,7 +7,6 @@ import os
 from urllib.error import HTTPError
 import urllib.error
 import urllib.request
-import urllib.parse
 import json
 from typing import Any, Optional
 from datetime import datetime
@@ -65,7 +64,7 @@ class PiholeAuth:
         api_url = f"{EnvVars.pihole_base_url}/api/auth"
         json_data = {"password": EnvVars.pihole_password}
         result: ApiResponse = rest_request(
-            url=api_url, body=json_data, method=HttpMethod.POST
+            url=api_url, body=json_data, method=HTTP_Method.POST
         )
         if result.code != 200:
             raise ValueError("Invalid Password")
@@ -79,14 +78,15 @@ class PiholeAuth:
         return PiholeAuth(**json_obj)
 
     def to_json(self) -> str:
-        def converter(o: Any):
+        def converter(o: Any) -> str:
             if isinstance(o, datetime):
                 return o.isoformat()
+            raise TypeError(f"Type {type(o)} is not serializable")
 
         return json.dumps(asdict(self), default=converter)
 
 
-HttpMethod = Enum("HTTP_Method", ["GET", "POST", "PUT", "DELETE"])
+HTTP_Method = Enum("HTTP_Method", ["GET", "POST", "PUT", "DELETE"])
 
 
 @dataclass
@@ -97,7 +97,7 @@ class ApiResponse:
 
 def rest_request(
     url: str,
-    method: HttpMethod,
+    method: HTTP_Method,
     body: Optional[dict[str, Any]] = None,
     headers: Optional[dict[str, str]] = None,
     auth: Optional[PiholeAuth] = None,
@@ -133,7 +133,7 @@ def pihole_api_get(auth: PiholeAuth, api_path: str) -> Any:
         api_path = api_path.lstrip("/")
     api_url = f"{EnvVars.pihole_base_url}/api/{api_path}"
     api_result: ApiResponse = rest_request(
-        url=api_url, auth=auth, method=HttpMethod.GET
+        url=api_url, auth=auth, method=HTTP_Method.GET
     )
     if api_result.code != 200 or api_result.json is None:
         raise ValueError("Can't get current DNS Records")
@@ -149,7 +149,7 @@ class DockerContainer:
     def get_running_containers(cls, docker_endpoint: str) -> list["DockerContainer"]:
         result: list[DockerContainer] = []
         api_url = docker_endpoint + "/containers/json"
-        response = rest_request(url=api_url, method=HttpMethod.GET)
+        response = rest_request(url=api_url, method=HTTP_Method.GET)
         if response.code != 200 or response.json is None:
             raise ValueError("Can't get containers from docker endpoint")
         for container in response.json:
@@ -164,22 +164,22 @@ class DnsRecord:
     domain: str
     ip: str
 
-    def remove(self, auth: PiholeAuth):
+    def remove(self, auth: PiholeAuth) -> None:
         api_url = (
             f"{EnvVars.pihole_base_url}/api/config/dns/hosts/{self.ip}%20{self.domain}"
         )
-        rest_request(url=api_url, auth=auth, method=HttpMethod.DELETE)
+        rest_request(url=api_url, auth=auth, method=HTTP_Method.DELETE)
         print(f"Removed DNS Record from pihole: domain: {self.domain}, ip: {self.ip}")
 
-    def add(self, auth: PiholeAuth):
+    def add(self, auth: PiholeAuth) -> None:
         api_url = (
             f"{EnvVars.pihole_base_url}/api/config/dns/hosts/{self.ip}%20{self.domain}"
         )
-        rest_request(url=api_url, auth=auth, method=HttpMethod.PUT)
+        rest_request(url=api_url, auth=auth, method=HTTP_Method.PUT)
         print(f"Added DNS Record to pihole: domain: {self.domain}, ip: {self.ip}")
 
     @classmethod
-    def current_remote_state(cls, auth: PiholeAuth):
+    def current_remote_state(cls, auth: PiholeAuth) -> list["DnsRecord"]:
         json_result = pihole_api_get(auth, "config/dns/hosts/")
         record_list: list[str] = json_result["config"]["dns"]["hosts"]
         result: list[DnsRecord] = []
@@ -194,16 +194,16 @@ class CNameRecord:
     domain: str
     target: str
 
-    def remove(self, auth: PiholeAuth):
+    def remove(self, auth: PiholeAuth) -> None:
         api_url = f"{EnvVars.pihole_base_url}/api/config/dns/cnameRecords/{self.domain}%2C{self.target}"
-        rest_request(url=api_url, auth=auth, method=HttpMethod.DELETE)
+        rest_request(url=api_url, auth=auth, method=HTTP_Method.DELETE)
         print(
             f"Removed CName from pihole: domain: {self.domain}, target: {self.target}"
         )
 
-    def add(self, auth: PiholeAuth):
+    def add(self, auth: PiholeAuth) -> None:
         api_url = f"{EnvVars.pihole_base_url}/api/config/dns/cnameRecords/{self.domain}%2C{self.target}"
-        rest_request(url=api_url, auth=auth, method=HttpMethod.PUT)
+        rest_request(url=api_url, auth=auth, method=HTTP_Method.PUT)
         print(f"Added CName to pihole: domain: {self.domain}, target: {self.target}")
 
     @classmethod
@@ -268,11 +268,11 @@ class LocalDnsConfig:
         cname_records = cname_records + CNameRecord.load_from_docker_labels()
         return LocalDnsConfig(dns=dns_records, cname=cname_records)
 
-    def apply(self, auth: PiholeAuth):
+    def apply(self, auth: PiholeAuth) -> None:
         self._apply_dns(auth)
         self._apply_cname(auth)
 
-    def _apply_dns(self, auth: PiholeAuth):
+    def _apply_dns(self, auth: PiholeAuth) -> None:
         current_dns = DnsRecord.current_remote_state(auth)
 
         to_add = [x for x in current_dns + self.dns if x not in current_dns]
@@ -285,7 +285,7 @@ class LocalDnsConfig:
         for dns in to_add:
             dns.add(auth)
 
-    def _apply_cname(self, auth: PiholeAuth):
+    def _apply_cname(self, auth: PiholeAuth) -> None:
         current_cname = CNameRecord.current_remote_state(auth)
         to_add = [x for x in current_cname + self.cname if x not in current_cname]
 
@@ -356,29 +356,29 @@ class DomainRecord:
 
         return result
 
-    def remove(self, auth: PiholeAuth):
+    def remove(self, auth: PiholeAuth) -> None:
         domain_type = "allow" if self.allow else "deny"
         kind = "exact" if self.exact else "regex"
         api_url = (
             f"{EnvVars.pihole_base_url}/api/domains/{domain_type}/{kind}/{self.domain}"
         )
-        rest_request(url=api_url, auth=auth, method=HttpMethod.DELETE)
+        rest_request(url=api_url, auth=auth, method=HTTP_Method.DELETE)
         if self.allow:
             print(f"Removed allowed Domain from pihole: {self.domain} ")
         else:
             print(f"Removed denied Domain from pihole: {self.domain} ")
 
-    def add(self, auth: PiholeAuth):
+    def add(self, auth: PiholeAuth) -> None:
         domain_type = "allow" if self.allow else "deny"
         kind = "exact" if self.exact else "regex"
         api_url = f"{EnvVars.pihole_base_url}/api/domains/{domain_type}/{kind}"
-        body = {
+        body: dict[str, Any] = {
             "domain": self.domain,
             "comment": self.comment,
             "enabled": True,
             "groups": 0,
         }
-        rest_request(url=api_url, auth=auth, method=HttpMethod.POST, body=body)
+        rest_request(url=api_url, auth=auth, method=HTTP_Method.POST, body=body)
         if self.allow:
             print(f"Added allowed Domain to pihole: {self.domain} ")
         else:
@@ -396,7 +396,7 @@ class DomainConfig:
             domains.append(DomainRecord.from_json(domain_config))
         return DomainConfig(domains=domains)
 
-    def apply(self, auth: PiholeAuth):
+    def apply(self, auth: PiholeAuth) -> None:
         current_remote_state = DomainRecord.current_remote_state(auth)
 
         to_add = [
@@ -438,7 +438,7 @@ class PiholeConfig:
                 domains_config = DomainConfig.from_json(json_config[key])
         return PiholeConfig(local_dns=local_dns_config, domains=domains_config)
 
-    def apply(self, auth: PiholeAuth):
+    def apply(self, auth: PiholeAuth) -> None:
         self.local_dns.apply(auth)
         self.domains.apply(auth)
 
