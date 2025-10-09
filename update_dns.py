@@ -446,11 +446,12 @@ class PiholeConfig:
 def main() -> None:
     try:
         pihole_auth: PiholeAuth = PiholeAuth.get_valid()
-    except urllib.error.URLError:
+    except (urllib.error.URLError, ConnectionResetError):
         print(
             f"Warning: Pihole ({EnvVars.pihole_base_url}) isn't reachable. This is normal if the container just started."
         )
         exit()
+
     pihole_config: PiholeConfig = PiholeConfig.from_file(EnvVars.config_file)
     pihole_config.apply(auth=pihole_auth)
 
